@@ -2,6 +2,12 @@
 """
 Estimate Relaxation from Band Powers
 
+pip install simpleaudio pydub pylsl
+pip install sounddevice
+pip install MIDIUtil
+pip install mido python-rtmidi
+pip install --upgrade diffusers accelerate transformers
+
 Run:
 muselsl stream
 python3 main.py
@@ -13,6 +19,14 @@ import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 from pylsl import StreamInlet, resolve_byprop
 import utils
+
+from pydub import AudioSegment
+from pydub.generators import Sine
+from pydub.playback import play
+import sounddevice as sd
+import mido
+from mido import Message, get_output_names
+import time
 
 
 class Band:
@@ -27,17 +41,6 @@ EPOCH_LENGTH = 1
 OVERLAP_LENGTH = 0.8
 SHIFT_LENGTH = EPOCH_LENGTH - OVERLAP_LENGTH
 INDEX_CHANNEL = [0]
-
-
-def step(state):
-    print("State shape in step:", state.shape)
-    num_neighbors = sum(
-        np.roll(np.roll(state, i, 0), j, 1)
-        for i in (-1, 0, 1)
-        for j in (-1, 0, 1)
-        if (i != 0 or j != 0)
-    )
-    return (num_neighbors == 3) | ((state.astype(int) & (num_neighbors == 2)) != 0)
 
 
 class ArtGenerator:
@@ -78,8 +81,12 @@ class ArtGenerator:
         for x in range(width):
             for y in range(height):
                 zx, zy = (
-                    x * (x_max - x_min) / (width - 1) + x_min,
-                    y * (y_max - y_min) / (height - 1) + y_min,
+                    x * (x_max - x_min) / (width - 1)
+                    + x_min
+                    + self.data[0],  # Add band power data here
+                    y * (y_max - y_min) / (height - 1)
+                    + y_min
+                    + self.data[1],  # Add band power data here
                 )
                 c = zx + zy * 1j
                 z = c
@@ -94,9 +101,34 @@ class ArtGenerator:
         plt.draw()
         plt.pause(0.01)  # pause a bit so that the plot gets updated
 
+    # def sound_synthesis(self):
+    #     # Convert band power data to frequency and duration
+    #     frequency = int(self.data[0] * 1000)  # Frequency in Hz
+    #     duration = int(self.data[1] * 1000)  # Duration in milliseconds
+
+    #     # Generate a sine wave tone with the given frequency and duration
+    #     sample_rate = 44100
+    #     t = np.linspace(0, duration / 1000, int(sample_rate * duration / 1000), False)
+    #     tone = np.sin(frequency * t * 2 * np.pi)
+
+    #     # Play the tone
+    #     sd.play(tone, sample_rate)
     def sound_synthesis(self):
-        # Sound synthesis code here
-        pass
+        # Convert band power data to pitch and duration
+        pitch = int(self.data[0] * 60) + 60  # MIDI note number
+        duration = self.data[1] * 2  # Duration in beats
+
+        # Create a new MIDI output port
+        outport = mido.open_output()
+
+        # Send a note on message
+        outport.send(Message("note_on", note=pitch, velocity=64))
+
+        # Wait for the duration of the note
+        time.sleep(duration)
+
+        # Send a note off message
+        outport.send(Message("note_off", note=pitch, velocity=64))
 
     def interactive_art(self):
         # Interactive art code here
@@ -105,6 +137,30 @@ class ArtGenerator:
     def performance_art(self):
         # Performance art code here
         pass
+
+    def diffusion_model(self):
+        # Set the size of the image (width, height)
+        width = 100
+        height = 100
+
+        # Create a blank image
+        image = np.zeros((width, height))
+
+        # Define properties of the diffusion model
+        diffusion_rate = self.data[0]  # Use band power data here
+        time_steps = int(self.data[1] * 1000)  # Use band power data here
+
+        # Initialize the diffusion model
+        model = np.random.choice([0, 1], size=(width, height))
+
+        # Run the diffusion model TODO: diffusers
+        # for _ in range(time_steps):
+        #     model = diffusion_step(model, diffusion_rate)  # Define this function
+
+        # Update the image data instead of creating a new plot
+        self.img.set_data(model)
+        plt.draw()
+        plt.pause(0.01)  # pause a bit so that the plot gets updated
 
 
 if __name__ == "__main__":
@@ -177,5 +233,7 @@ if __name__ == "__main__":
             # Generate art using cellular automaton
             # art.cellular_automaton()
             art.fractal()
+            # art.sound_synthesis()
     except KeyboardInterrupt:
+        sd.stop()
         print("Closing!")
