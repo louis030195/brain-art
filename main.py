@@ -7,6 +7,8 @@ pip install sounddevice
 pip install MIDIUtil
 pip install mido python-rtmidi
 pip install --upgrade diffusers accelerate transformers
+pip install matplotlib
+pip install scikit-learn
 
 Run:
 muselsl stream
@@ -51,19 +53,24 @@ class ArtGenerator:
     def cellular_automaton(self):
         # Create a random initial state
         initial_state = np.random.choice([0, 1], size=(100, 100))
-        # Set the probabilities
-        initial_state = (
-            initial_state * self.data[0] + (1 - initial_state) * self.data[1]
-        )
 
-        # Ensure initial_state is a 2-dimensional array
-        initial_state = np.reshape(initial_state, (100, 100))
+        # Use EEG data to modify the rules of the automaton
+        rule = int(self.data[0] * 255)  # Convert band power to a rule number
 
-        # Update the image data instead of creating a new plot
+        for step in range(100):  # Run for 100 iterations
+            new_state = np.zeros_like(initial_state)
+            for i in range(1, 99):
+                for j in range(1, 99):
+                    # Consider the cell and its immediate neighbors
+                    neighborhood = initial_state[i-1:i+2, j-1:j+2]
+                    # Apply a rule based on the neighborhood and EEG data
+                    new_state[i, j] = 1 if np.sum(neighborhood) > 4 + rule % 5 else 0
+            initial_state = new_state
+
+        # Update the image data
         self.img.set_data(initial_state)
         plt.draw()
         plt.pause(0.01)  # pause a bit so that the plot gets updated
-
     def fractal(self):
         # Set the size of the image (width, height)
         width = 100
@@ -146,22 +153,27 @@ class ArtGenerator:
         # Create a blank image
         image = np.zeros((width, height))
 
-        # Define properties of the diffusion model
-        diffusion_rate = self.data[0]  # Use band power data here
-        time_steps = int(self.data[1] * 1000)  # Use band power data here
+        # Use EEG data to set the diffusion rate
+        diffusion_rate = self.data[0] * 0.1  # Adjust diffusion rate based on EEG
 
         # Initialize the diffusion model
-        model = np.random.choice([0, 1], size=(width, height))
+        model = np.random.choice([0, 1], size=(width, height), p=[1-diffusion_rate, diffusion_rate])
 
-        # Run the diffusion model TODO: diffusers
-        # for _ in range(time_steps):
-        #     model = diffusion_step(model, diffusion_rate)  # Define this function
+        # Run the diffusion model
+        for _ in range(int(self.data[1] * 100)):  # Use EEG data to determine the number of iterations
+            new_model = np.zeros_like(model)
+            for i in range(1, width-1):
+                for j in range(1, height-1):
+                    # Sum the states of the neighboring cells
+                    total = np.sum(model[i-1:i+2, j-1:j+2]) - model[i, j]
+                    # Apply diffusion rules based on the total
+                    new_model[i, j] = 1 if total > 4 else 0
+            model = new_model
 
-        # Update the image data instead of creating a new plot
+        # Update the image data
         self.img.set_data(model)
         plt.draw()
         plt.pause(0.01)  # pause a bit so that the plot gets updated
-
 
 if __name__ == "__main__":
     print("Looking for an EEG stream...")
@@ -226,13 +238,14 @@ if __name__ == "__main__":
 
             # Normalize band powers to sum to 1
             band_powers = [float(i) / sum(band_powers) for i in band_powers]
-
+            print(band_powers)
             # Create an instance of ArtGenerator
             art = ArtGenerator(band_powers, img)
 
             # Generate art using cellular automaton
-            # art.cellular_automaton()
-            art.fractal()
+            art.cellular_automaton()
+            # art.fractal()
+            # art.diffusion_model()
             # art.sound_synthesis()
     except KeyboardInterrupt:
         sd.stop()
